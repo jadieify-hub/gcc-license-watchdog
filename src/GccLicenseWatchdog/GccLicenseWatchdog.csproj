@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <AssemblyName>GccLicenseWatchdog</AssemblyName>
+    <AssemblyTitle>GCC License Watchdog</AssemblyTitle>
+    <RootNamespace>GccLicenseWatchdog</RootNamespace>
+    <Product>GCC License Watchdog</Product>
+    <Authors>Руслан Керусов</Authors>
+    <Company>KRS</Company>
+    <Description>Monitors local Guardant licenses and safely recovers Guardant Control Center.</Description>
+    <Copyright>© 2026 KRS</Copyright>
+    <RepositoryUrl>https://github.com/jadieify-hub/gcc-license-watchdog</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/jadieify-hub/gcc-license-watchdog</PackageProjectUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="8.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
+  </ItemGroup>
+</Project>
