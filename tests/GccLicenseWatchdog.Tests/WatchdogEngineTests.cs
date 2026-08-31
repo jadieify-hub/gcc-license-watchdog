@@ -1,6 +1,7 @@
 using GccLicenseWatchdog.Detection;
 using GccLicenseWatchdog.Guardant;
 using GccLicenseWatchdog.Recovery;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -42,6 +43,57 @@ public sealed class WatchdogEngineTests
         Assert.Equal(WatchdogCycleOutcome.ExhaustedWithUniqueUsers, result.Outcome);
         Assert.Equal(1, api.SessionCalls);
         Assert.Equal(0, recovery.RestartCalls);
+    }
+
+    [Fact]
+    public async Task PersistentUniqueExhaustionLogsOnceWithFeatureDetails()
+    {
+        var api = new FakeGuardantClient
+        {
+            Features = [Feature(FirstKey, floating: 0, maximum: 1)],
+            Sessions = [Session(1, FirstKey, "42")]
+        };
+        var clock = new FakeWatchdogClock();
+        var logger = new RecordingLogger<WatchdogEngine>();
+        var engine = CreateEngine(api, clock: clock, logger: logger);
+
+        await engine.RunCycleAsync(CancellationToken.None);
+        await clock.DelayAsync(TimeSpan.FromMinutes(16), CancellationToken.None);
+        await engine.RunCycleAsync(CancellationToken.None);
+
+        var entries = logger.Entries
+            .Where(entry => entry.Message.Contains("no restart is performed", StringComparison.Ordinal))
+            .ToArray();
+        var entry = Assert.Single(entries);
+        Assert.Equal(LogLevel.Information, entry.Level);
+        Assert.Contains("ДАЛИОН/Feature 2", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("used=1/1", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("sessions=1", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UniqueExhaustionLogsAgainAfterResourceWasReleased()
+    {
+        var api = new FakeGuardantClient
+        {
+            Features = [Feature(FirstKey, floating: 0, maximum: 1)],
+            Sessions = [Session(1, FirstKey, "42")]
+        };
+        var logger = new RecordingLogger<WatchdogEngine>();
+        var engine = CreateEngine(api, logger: logger);
+
+        await engine.RunCycleAsync(CancellationToken.None);
+        api.Features = [Feature(FirstKey, floating: 1, maximum: 1)];
+        api.Sessions = [];
+        await engine.RunCycleAsync(CancellationToken.None);
+        api.Features = [Feature(FirstKey, floating: 0, maximum: 1)];
+        api.Sessions = [Session(2, FirstKey, "43")];
+        await engine.RunCycleAsync(CancellationToken.None);
+
+        Assert.Equal(
+            2,
+            logger.Entries.Count(entry =>
+                entry.Message.Contains("no restart is performed", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -152,14 +204,15 @@ public sealed class WatchdogEngineTests
         FakeGuardantClient api,
         FakeCooldownStore? cooldown = null,
         FakeRecoveryManager? recovery = null,
-        FakeWatchdogClock? clock = null) => new(
+        FakeWatchdogClock? clock = null,
+        ILogger<WatchdogEngine>? logger = null) => new(
             api,
             new LicenseIncidentDetector(),
             cooldown ?? new FakeCooldownStore(),
             recovery ?? new FakeRecoveryManager(),
             clock ?? new FakeWatchdogClock(),
             Options.Create(new WatchdogOptions()),
-            NullLogger<WatchdogEngine>.Instance);
+            logger ?? NullLogger<WatchdogEngine>.Instance);
 
     private static FakeGuardantClient DuplicateIncidentApi(FeatureKey key) => new()
     {
@@ -167,15 +220,15 @@ public sealed class WatchdogEngineTests
         Sessions = [Session(1, key, "42"), Session(2, key, "42")]
     };
 
-    private static FeatureInfo Feature(FeatureKey key, int floating) => new(
+    private static FeatureInfo Feature(FeatureKey key, int floating, int maximum = 11) => new(
         key,
         "ДАЛИОН",
         $"Feature {key.FeatureNumber}",
         3,
         false,
         floating,
-        11,
-        11 - floating);
+        maximum,
+        maximum - floating);
 
     private static SessionInfo Session(long sessionId, FeatureKey key, string userId) => new(
         sessionId,

@@ -38,7 +38,7 @@ public sealed class WatchdogEngine(
     ILogger<WatchdogEngine> logger) : IWatchdogEngine
 {
     private readonly WatchdogOptions _options = options.Value;
-    private DateTimeOffset? _lastUniqueExhaustionWarningUtc;
+    private readonly HashSet<FeatureKey> _reportedUniqueExhaustions = [];
 
     public async Task<WatchdogCycleResult> RunCycleAsync(CancellationToken cancellationToken)
     {
@@ -70,6 +70,7 @@ public sealed class WatchdogEngine(
         var preliminaryReport = detector.Evaluate(features, []);
         if (preliminaryReport.ExhaustedFeatures.Count == 0)
         {
+            UpdateUniqueExhaustionLogState(preliminaryReport);
             return new WatchdogCycleResult(WatchdogCycleOutcome.Healthy, preliminaryReport);
         }
 
@@ -93,7 +94,7 @@ public sealed class WatchdogEngine(
         var report = detector.Evaluate(features, sessions);
         if (report.RestartCandidates.Count == 0)
         {
-            LogUniqueExhaustionIfDue(report);
+            UpdateUniqueExhaustionLogState(report);
             return new WatchdogCycleResult(WatchdogCycleOutcome.ExhaustedWithUniqueUsers, report);
         }
 
@@ -122,19 +123,29 @@ public sealed class WatchdogEngine(
         return new WatchdogCycleResult(WatchdogCycleOutcome.Restarted, report, recovery);
     }
 
-    private void LogUniqueExhaustionIfDue(DetectionReport report)
+    private void UpdateUniqueExhaustionLogState(DetectionReport report)
     {
-        var interval = TimeSpan.FromMinutes(_options.DiagnosticLogIntervalMinutes);
-        if (_lastUniqueExhaustionWarningUtc.HasValue &&
-            clock.UtcNow - _lastUniqueExhaustionWarningUtc.Value < interval)
-        {
-            return;
-        }
+        var exhaustedKeys = report.ExhaustedFeatures
+            .Select(feature => feature.Key)
+            .ToHashSet();
+        _reportedUniqueExhaustions.RemoveWhere(key => !exhaustedKeys.Contains(key));
 
-        _lastUniqueExhaustionWarningUtc = clock.UtcNow;
-        logger.LogWarning(
-            "Guardant license resource is exhausted for {FeatureCount} component(s), but all identified users are unique; no restart is performed.",
-            report.ExhaustedFeatures.Count);
+        foreach (var feature in report.ExhaustedFeatures)
+        {
+            if (!_reportedUniqueExhaustions.Add(feature.Key))
+            {
+                continue;
+            }
+
+            logger.LogInformation(
+                "Guardant license resource is exhausted for {Product}/{Feature} ({Key}): used={UsedResource}/{MaxResource}, sessions={SessionCount}; all identified users are unique; no restart is performed.",
+                feature.ProductName,
+                feature.FeatureName,
+                feature.Key,
+                feature.MaxConcurrentResource - feature.FloatingResource,
+                feature.MaxConcurrentResource,
+                feature.SessionsCount);
+        }
     }
 
     private void LogIncident(DetectionReport report)

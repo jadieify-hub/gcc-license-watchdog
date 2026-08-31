@@ -16,7 +16,6 @@ public sealed class WatchdogOptions
     public int ApiRequestTimeoutSeconds { get; init; } = 10;
     public int SessionPageSize { get; init; } = 100;
     public int MaxSessionPages { get; init; } = 100;
-    public int DiagnosticLogIntervalMinutes { get; init; } = 15;
 }
 
 public sealed class WatchdogOptionsValidator : IValidateOptions<WatchdogOptions>
@@ -44,12 +43,6 @@ public sealed class WatchdogOptionsValidator : IValidateOptions<WatchdogOptions>
         ValidateRange(options.ApiRequestTimeoutSeconds, 1, 300, "ApiRequestTimeoutSeconds", failures);
         ValidateRange(options.SessionPageSize, 1, 1000, "SessionPageSize", failures);
         ValidateRange(options.MaxSessionPages, 1, 100, "MaxSessionPages", failures);
-        ValidateRange(
-            options.DiagnosticLogIntervalMinutes,
-            1,
-            int.MaxValue,
-            "DiagnosticLogIntervalMinutes",
-            failures);
 
         return failures.Count == 0
             ? ValidateOptionsResult.Success
