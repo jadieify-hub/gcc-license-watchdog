@@ -97,6 +97,66 @@ public sealed class WatchdogEngineTests
     }
 
     [Fact]
+    public async Task UniqueExhaustionTransitionsAreTrackedWhileAnotherFeatureTriggersRecovery()
+    {
+        var api = new FakeGuardantClient
+        {
+            Features =
+            [
+                Feature(FirstKey, floating: 0, maximum: 1),
+                Feature(SecondKey, floating: 0, maximum: 2)
+            ],
+            Sessions =
+            [
+                Session(1, FirstKey, "42"),
+                Session(2, SecondKey, "84"),
+                Session(3, SecondKey, "84")
+            ]
+        };
+        var recovery = new FakeRecoveryManager();
+        var logger = new RecordingLogger<WatchdogEngine>();
+        var engine = CreateEngine(api, recovery: recovery, logger: logger);
+
+        await engine.RunCycleAsync(CancellationToken.None);
+        api.Features =
+        [
+            Feature(FirstKey, floating: 1, maximum: 1),
+            Feature(SecondKey, floating: 0, maximum: 2)
+        ];
+        api.Sessions =
+        [
+            Session(4, SecondKey, "84"),
+            Session(5, SecondKey, "84")
+        ];
+        await engine.RunCycleAsync(CancellationToken.None);
+        api.Features =
+        [
+            Feature(FirstKey, floating: 0, maximum: 1),
+            Feature(SecondKey, floating: 0, maximum: 2)
+        ];
+        api.Sessions =
+        [
+            Session(6, FirstKey, "43"),
+            Session(7, SecondKey, "84"),
+            Session(8, SecondKey, "84")
+        ];
+        await engine.RunCycleAsync(CancellationToken.None);
+
+        Assert.Equal(3, recovery.RestartCalls);
+        Assert.Equal(
+            2,
+            logger.Entries.Count(entry =>
+                entry.Level == LogLevel.Information &&
+                entry.Message.Contains("Feature 2", StringComparison.Ordinal) &&
+                entry.Message.Contains("no restart is performed", StringComparison.Ordinal)));
+        Assert.Contains(
+            logger.Entries,
+            entry =>
+                entry.Level == LogLevel.Warning &&
+                entry.Message.Contains("Feature 4", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task DuplicateUserRestartsImmediatelyAndMarksCooldown()
     {
         var api = DuplicateIncidentApi(FirstKey);

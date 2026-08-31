@@ -92,9 +92,9 @@ public sealed class WatchdogEngine(
         }
 
         var report = detector.Evaluate(features, sessions);
+        UpdateUniqueExhaustionLogState(report);
         if (report.RestartCandidates.Count == 0)
         {
-            UpdateUniqueExhaustionLogState(report);
             return new WatchdogCycleResult(WatchdogCycleOutcome.ExhaustedWithUniqueUsers, report);
         }
 
@@ -128,9 +128,13 @@ public sealed class WatchdogEngine(
         var exhaustedKeys = report.ExhaustedFeatures
             .Select(feature => feature.Key)
             .ToHashSet();
+        var restartCandidateKeys = report.RestartCandidates
+            .Select(candidate => candidate.Feature.Key)
+            .ToHashSet();
         _reportedUniqueExhaustions.RemoveWhere(key => !exhaustedKeys.Contains(key));
 
-        foreach (var feature in report.ExhaustedFeatures)
+        foreach (var feature in report.ExhaustedFeatures.Where(feature =>
+                     !restartCandidateKeys.Contains(feature.Key)))
         {
             if (!_reportedUniqueExhaustions.Add(feature.Key))
             {
