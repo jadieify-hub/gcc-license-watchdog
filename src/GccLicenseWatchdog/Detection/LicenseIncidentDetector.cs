@@ -11,7 +11,6 @@ public sealed record DuplicateUser(
 public sealed record RestartCandidate(
     FeatureInfo Feature,
     int SessionCount,
-    int UniqueUserCount,
     IReadOnlyList<DuplicateUser> DuplicateUsers);
 
 public sealed record DetectionReport(
@@ -37,6 +36,7 @@ public sealed class LicenseIncidentDetector
         {
             var featureSessions = sessions
                 .Where(session => session.FeatureKey == feature.Key)
+                .DistinctBy(session => session.SessionId)
                 .ToArray();
             var identified = featureSessions
                 .Select(session => new IdentifiedSession(
@@ -54,7 +54,6 @@ public sealed class LicenseIncidentDetector
             candidates.Add(new RestartCandidate(
                 feature,
                 featureSessions.Length,
-                CountConnectedUsers(identified),
                 duplicates));
         }
 
@@ -103,56 +102,6 @@ public sealed class LicenseIncidentDetector
                     .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)),
                 sessionIds));
         }
-    }
-
-    private static int CountConnectedUsers(IReadOnlyList<IdentifiedSession> sessions)
-    {
-        var parents = Enumerable.Range(0, sessions.Count).ToArray();
-        var firstSessionByIdentity = new Dictionary<string, int>(StringComparer.Ordinal);
-        for (var index = 0; index < sessions.Count; index++)
-        {
-            UnionByIdentity(sessions[index].IdIdentity, index, parents, firstSessionByIdentity);
-            UnionByIdentity(sessions[index].NameIdentity, index, parents, firstSessionByIdentity);
-        }
-
-        return Enumerable.Range(0, sessions.Count)
-            .Select(index => FindRoot(index, parents))
-            .Distinct()
-            .Count();
-    }
-
-    private static void UnionByIdentity(
-        string? identity,
-        int index,
-        int[] parents,
-        IDictionary<string, int> firstSessionByIdentity)
-    {
-        if (identity is null)
-        {
-            return;
-        }
-
-        if (firstSessionByIdentity.TryGetValue(identity, out var firstIndex))
-        {
-            var indexRoot = FindRoot(index, parents);
-            var firstRoot = FindRoot(firstIndex, parents);
-            parents[indexRoot] = firstRoot;
-        }
-        else
-        {
-            firstSessionByIdentity.Add(identity, index);
-        }
-    }
-
-    private static int FindRoot(int index, int[] parents)
-    {
-        while (parents[index] != index)
-        {
-            parents[index] = parents[parents[index]];
-            index = parents[index];
-        }
-
-        return index;
     }
 
     private static string? GetIdIdentity(SessionInfo session) =>

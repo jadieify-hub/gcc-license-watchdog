@@ -57,7 +57,6 @@ public sealed class LicenseIncidentDetectorTests
         var candidate = Assert.Single(report.RestartCandidates);
         Assert.Equal(FirstKey, candidate.Feature.Key);
         Assert.Equal(2, candidate.SessionCount);
-        Assert.Equal(1, candidate.UniqueUserCount);
         var duplicate = Assert.Single(candidate.DuplicateUsers);
         Assert.Equal("id:42", duplicate.Identity);
         Assert.Equal([10L, 20L], duplicate.SessionIds);
@@ -74,6 +73,23 @@ public sealed class LicenseIncidentDetectorTests
 
         Assert.Equal(2, report.ExhaustedFeatures.Count);
         Assert.Empty(report.RestartCandidates);
+    }
+
+    [Fact]
+    public void RepeatedSessionRecordIsNotAnotherConnectionAndIdsAreScopedToFeature()
+    {
+        var report = new LicenseIncidentDetector().Evaluate(
+            [Feature(FirstKey, 0), Feature(SecondKey, 0)],
+            [
+                Session(1, FirstKey, "42", "First"),
+                Session(1, FirstKey, "42", "First"),
+                Session(1, SecondKey, "84", "Second"),
+                Session(2, SecondKey, "84", "Second")
+            ]);
+
+        var candidate = Assert.Single(report.RestartCandidates);
+        Assert.Equal(SecondKey, candidate.Feature.Key);
+        Assert.Equal([1L, 2L], Assert.Single(candidate.DuplicateUsers).SessionIds);
     }
 
     [Fact]
@@ -107,7 +123,6 @@ public sealed class LicenseIncidentDetectorTests
         var candidate = Assert.Single(report.RestartCandidates);
         var duplicate = Assert.Single(candidate.DuplicateUsers);
         Assert.Equal("name:ТЕСТОВЫЙ ПОЛЬЗОВАТЕЛЬ", duplicate.Identity);
-        Assert.Equal(1, candidate.UniqueUserCount);
         Assert.Equal([1L, 2L], duplicate.SessionIds);
     }
 

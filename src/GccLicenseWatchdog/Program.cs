@@ -3,7 +3,6 @@ using GccLicenseWatchdog.Detection;
 using GccLicenseWatchdog.Guardant;
 using GccLicenseWatchdog.Recovery;
 using GccLicenseWatchdog.State;
-using Microsoft.Extensions.Logging.EventLog;
 using Microsoft.Extensions.Options;
 using Serilog;
 
@@ -33,17 +32,7 @@ try
     var logDirectory = Path.Combine(dataDirectory, "logs");
     Directory.CreateDirectory(logDirectory);
 
-    Log.Logger = new LoggerConfiguration()
-        .MinimumLevel.Information()
-        .MinimumLevel.Override("System.Net.Http.HttpClient", Serilog.Events.LogEventLevel.Warning)
-        .WriteTo.File(
-            Path.Combine(logDirectory, "watchdog-.log"),
-            rollingInterval: RollingInterval.Day,
-            retainedFileCountLimit: 14,
-            fileSizeLimitBytes: 10 * 1024 * 1024,
-            rollOnFileSizeLimit: true,
-            shared: true)
-        .CreateLogger();
+    Log.Logger = WatchdogLogging.CreateFileLogger(logDirectory);
 
     try
     {
@@ -53,13 +42,9 @@ try
             optional: true,
             reloadOnChange: true);
         builder.Services.AddWindowsService(settings => settings.ServiceName = watchdogServiceName);
-        builder.Services.AddSerilog(Log.Logger, dispose: true);
-        builder.Logging.AddEventLog(settings =>
-        {
-            settings.LogName = "Application";
-            settings.SourceName = watchdogServiceName;
-        });
-        builder.Logging.AddFilter<EventLogLoggerProvider>(category: null, LogLevel.Critical);
+        WatchdogLogging.Configure(builder.Logging, Log.Logger);
+        builder.Services.AddOptions<HostOptions>().Configure<IOptions<WatchdogOptions>>((host, watchdog) =>
+            host.ShutdownTimeout = GccRecoveryManager.GetRecoveryTimeout(watchdog.Value) + TimeSpan.FromSeconds(5));
 
         builder.Services
             .AddOptions<WatchdogOptions>()

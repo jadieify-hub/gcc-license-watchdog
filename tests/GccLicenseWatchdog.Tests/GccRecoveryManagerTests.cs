@@ -24,6 +24,21 @@ public sealed class GccRecoveryManagerTests
     }
 
     [Fact]
+    public async Task CancellationBeforeRecoveryDoesNotStopGcc()
+    {
+        using var stopping = new CancellationTokenSource();
+        stopping.Cancel();
+        var service = new FakeTargetServiceController();
+        var manager = CreateManager(service, new FakeGuardantClient());
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => manager.RestartAsync(stopping.Token));
+
+        Assert.Equal(TargetServiceState.Running, service.State);
+        Assert.Equal(0, service.StopCalls);
+    }
+
+    [Fact]
     public async Task RestartDoesNotStartWhenStopTimesOut()
     {
         var service = new FakeTargetServiceController

@@ -5,7 +5,7 @@
   #error OutputDir define is required
 #endif
 #ifndef AppVersion
-  #define AppVersion "0.1.2"
+  #define AppVersion "0.1.3"
 #endif
 
 #define AppName "GCC License Watchdog"
@@ -51,6 +51,8 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Source: "service-install.ps1"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "service-uninstall.ps1"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "service-uninstall.ps1"; Flags: dontcopy
+Source: "support.html"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\appsettings.json"; DestDir: "{commonappdata}\{#AppName}"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Dirs]
@@ -58,6 +60,7 @@ Name: "{commonappdata}\{#AppName}"; Permissions: admins-full system-full users-r
 Name: "{commonappdata}\{#AppName}\logs"; Permissions: admins-full system-full users-readexec
 
 [Icons]
+Name: "{autoprograms}\{#AppName}\Поддержать разработку"; Filename: "{app}\support.html"
 Name: "{autoprograms}\{#AppName}\Удалить {#AppName}"; Filename: "{uninstallexe}"
 
 [Code]

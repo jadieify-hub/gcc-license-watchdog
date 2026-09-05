@@ -174,6 +174,36 @@ public sealed class WatchdogEngineTests
     }
 
     [Fact]
+    public async Task StoppingWatchdogDuringRecoveryStillStartsGccAndPersistsCooldown()
+    {
+        using var stopping = new CancellationTokenSource();
+        var api = DuplicateIncidentApi(FirstKey);
+        var service = new FakeTargetServiceController
+        {
+            OnStopAsync = controller =>
+            {
+                controller.State = TargetServiceState.Stopped;
+                stopping.Cancel();
+                return Task.CompletedTask;
+            }
+        };
+        var clock = new FakeWatchdogClock();
+        var cooldown = new FakeCooldownStore();
+        var recovery = new GccRecoveryManager(
+            service, api, Options.Create(new WatchdogOptions()), clock,
+            NullLogger<GccRecoveryManager>.Instance);
+        var engine = CreateEngine(api, cooldown, recovery, clock);
+
+        var result = await engine.RunCycleAsync(stopping.Token);
+
+        Assert.Equal(WatchdogCycleOutcome.Restarted, result.Outcome);
+        Assert.Equal(TargetServiceState.Running, service.State);
+        Assert.Equal(1, service.StartCalls);
+        Assert.Equal(1, api.HealthCalls);
+        Assert.Equal(clock.UtcNow, cooldown.MarkedAtUtc);
+    }
+
+    [Fact]
     public async Task ActiveCooldownPreventsRestart()
     {
         var api = DuplicateIncidentApi(FirstKey);
@@ -263,7 +293,7 @@ public sealed class WatchdogEngineTests
     private static WatchdogEngine CreateEngine(
         FakeGuardantClient api,
         FakeCooldownStore? cooldown = null,
-        FakeRecoveryManager? recovery = null,
+        IGccRecoveryManager? recovery = null,
         FakeWatchdogClock? clock = null,
         ILogger<WatchdogEngine>? logger = null) => new(
             api,

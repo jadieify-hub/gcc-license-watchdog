@@ -118,7 +118,8 @@ public sealed class WatchdogEngine(
             return new WatchdogCycleResult(WatchdogCycleOutcome.RecoveryFailed, report, recovery);
         }
 
-        await cooldownStore.MarkSucceededAsync(clock.UtcNow, cancellationToken);
+        // A completed restart must remain recorded even during watchdog shutdown.
+        await cooldownStore.MarkSucceededAsync(clock.UtcNow, CancellationToken.None);
         logger.LogInformation("Guardant Control Center recovered successfully.");
         return new WatchdogCycleResult(WatchdogCycleOutcome.Restarted, report, recovery);
     }
@@ -157,12 +158,11 @@ public sealed class WatchdogEngine(
         foreach (var candidate in report.RestartCandidates)
         {
             logger.LogWarning(
-                "Guardant recovery triggered for {Product}/{Feature} ({Key}): sessions={SessionCount}, uniqueUsers={UniqueUsers}, duplicates={Duplicates}.",
+                "Guardant recovery triggered for {Product}/{Feature} ({Key}): sessions={SessionCount}, duplicates={Duplicates}.",
                 candidate.Feature.ProductName,
                 candidate.Feature.FeatureName,
                 candidate.Feature.Key,
                 candidate.SessionCount,
-                candidate.UniqueUserCount,
                 string.Join(
                     "; ",
                     candidate.DuplicateUsers.Select(duplicate =>

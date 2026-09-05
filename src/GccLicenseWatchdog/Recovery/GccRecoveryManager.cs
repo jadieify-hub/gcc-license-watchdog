@@ -12,6 +12,7 @@ public enum RecoveryOutcome
     StopTimedOut,
     StartFailed,
     StartRetryDeferred,
+    RecoveryTimedOut,
     ApiUnavailable
 }
 
@@ -34,11 +35,17 @@ public sealed class GccRecoveryManager(
     IWatchdogClock clock,
     ILogger<GccRecoveryManager> logger) : IGccRecoveryManager
 {
+    private const int StartAttempts = 3;
     private static readonly TimeSpan StatusPollInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan StartRetryDelay = TimeSpan.FromSeconds(10);
     private readonly SemaphoreSlim _recoveryGate = new(1, 1);
     private readonly WatchdogOptions _options = options.Value;
     private DateTimeOffset? _nextStartAttemptUtc;
+
+    public static TimeSpan GetRecoveryTimeout(WatchdogOptions options) => TimeSpan.FromSeconds(
+        (double)options.StopTimeoutSeconds + StartAttempts * (double)options.StartTimeoutSeconds +
+        options.ApiReadyTimeoutSeconds + options.ApiRequestTimeoutSeconds +
+        (StartAttempts - 1) * StartRetryDelay.TotalSeconds + 5);
 
     public async Task<RecoveryResult> EnsureAvailableAsync(CancellationToken cancellationToken)
     {
@@ -104,13 +111,19 @@ public sealed class GccRecoveryManager(
     public async Task<RecoveryResult> RestartAsync(CancellationToken cancellationToken)
     {
         await _recoveryGate.WaitAsync(cancellationToken);
+        using var recoveryDeadline = new CancellationTokenSource();
         try
         {
+            recoveryDeadline.CancelAfter(GetRecoveryTimeout(_options));
             var state = await serviceController.GetStateAsync(cancellationToken);
             if (state == TargetServiceState.Missing)
             {
                 return Failure(false, RecoveryOutcome.ServiceMissing, "Guardant Control Center service is missing.");
             }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            // Once admitted, finish the restart even when the watchdog is asked to stop.
+            cancellationToken = recoveryDeadline.Token;
 
             if (state == TargetServiceState.StopPending)
             {
@@ -137,6 +150,10 @@ public sealed class GccRecoveryManager(
 
             return await StartAndVerifyAsync(restartPerformed: true, cancellationToken);
         }
+        catch (OperationCanceledException) when (recoveryDeadline.IsCancellationRequested)
+        {
+            return Failure(true, RecoveryOutcome.RecoveryTimedOut, "Guardant recovery exceeded its time limit.");
+        }
         finally
         {
             _recoveryGate.Release();
@@ -147,7 +164,7 @@ public sealed class GccRecoveryManager(
         bool restartPerformed,
         CancellationToken cancellationToken)
     {
-        for (var attempt = 1; attempt <= 3; attempt++)
+        for (var attempt = 1; attempt <= StartAttempts; attempt++)
         {
             try
             {
@@ -179,7 +196,7 @@ public sealed class GccRecoveryManager(
                 logger.LogError(exception, "Failed to start Guardant Control Center on attempt {Attempt}.", attempt);
             }
 
-            if (attempt < 3)
+            if (attempt < StartAttempts)
             {
                 await clock.DelayAsync(StartRetryDelay, cancellationToken);
             }
